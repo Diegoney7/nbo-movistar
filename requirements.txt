@@ -1,0 +1,19 @@
+# Versiones fijadas a las que produjeron los modelos de models_artifacts/.
+# No es purismo: los .pkl los deserializa joblib y un cambio de versión de
+# scikit-learn o LightGBM puede romper la carga o alterar las predicciones en el
+# servidor. Si se re-entrena con otras versiones, actualizar este archivo.
+numpy==2.4.0
+pandas==2.3.3
+# >=1.6 es obligatorio: src/models/acceptance_model.py usa sklearn.frozen.FrozenEstimator
+# para la calibración isotónica (reemplazó al antiguo CalibratedClassifierCV(cv='prefit')).
+scikit-learn==1.8.0
+lightgbm==4.6.0
+shap==0.51.0
+joblib==1.5.3
+
+# Interfaz
+streamlit==1.57.0
+plotly==6.7.0
+
+# IA generativa: argumentario de venta y speech de rebate (src/llm_assistant.py).
+google-genai==1.73.1

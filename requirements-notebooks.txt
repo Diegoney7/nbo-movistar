@@ -1,0 +1,7 @@
+# Dependencias solo del análisis exploratorio (notebooks/run_eda.py y
+# notebooks/01_eda.ipynb). Se mantienen fuera de requirements.txt para que el
+# despliegue no instale ~80 MB de librerías de gráficos que la app no usa.
+-r requirements.txt
+matplotlib>=3.7
+seaborn>=0.13
+nbformat>=5.9

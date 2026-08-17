@@ -1,0 +1,23 @@
+oferta_id,nombre_oferta,tipo_oferta,segmento_objetivo,es_movistar_total,precio_mensual,ahorro_pct,gb_incluidos,cluster_hogar,descripcion_bundle,descripcion_corta
+OF001,Plan Movil Basico 10GB,plan_movil,movil,False,39.9,0,10,,,Plan Movil Basico 10GB - 10GB - S/ 39.9
+OF002,Plan Movil Plus 25GB,plan_movil,movil,False,59.9,0,25,,,Plan Movil Plus 25GB - 25GB - S/ 59.9
+OF003,Plan Movil Max 50GB,plan_movil,movil,False,79.9,0,50,,,Plan Movil Max 50GB - 50GB - S/ 79.9
+OF004,Plan Movil Ilimitado,plan_movil,movil,False,99.9,0,9999,,,Plan Movil Ilimitado - 9999GB - S/ 99.9
+OF005,Internet Hogar 100Mb,plan_hogar,hogar,False,89.9,0,0,mono,Internet,Internet Hogar 100Mb - 0GB - S/ 89.9
+OF006,Internet Hogar 200Mb,plan_hogar,hogar,False,109.9,0,0,mono,Internet,Internet Hogar 200Mb - 0GB - S/ 109.9
+OF007,TV Hogar Sola,plan_hogar,hogar,False,69.9,0,0,mono,TV,TV Hogar Sola - 0GB - S/ 69.9
+OF008,Internet + TV Hogar,plan_hogar,hogar,False,129.9,0,0,duo,Internet + TV,Internet + TV Hogar - 0GB - S/ 129.9
+OF009,Internet + Fijo Hogar,plan_hogar,hogar,False,119.9,0,0,duo,Internet + Telefonia fija,Internet + Fijo Hogar - 0GB - S/ 119.9
+OF010,Internet + TV + Fijo Hogar,plan_hogar,hogar,False,159.9,0,0,trio,Internet + TV + Telefonia fija,Internet + TV + Fijo Hogar - 0GB - S/ 159.9
+OF011,Upgrade a Plan Plus,upgrade,movil,False,20.0,0,15,,,Upgrade a Plan Plus - 15GB - S/ 20.0
+OF012,Upgrade a Plan Max,upgrade,movil,False,40.0,0,40,,,Upgrade a Plan Max - 40GB - S/ 40.0
+OF013,Upgrade Velocidad Hogar,upgrade,hogar,False,25.0,0,0,,,Upgrade Velocidad Hogar - 0GB - S/ 25.0
+OF014,Equipo Smartphone Gama Media,equipo,movil,False,45.0,0,0,,,Equipo Smartphone Gama Media - 0GB - S/ 45.0
+OF015,Equipo Smartphone Gama Alta,equipo,movil,False,90.0,0,0,,,Equipo Smartphone Gama Alta - 0GB - S/ 90.0
+OF016,Router WiFi 6,equipo,hogar,False,15.0,0,0,,,Router WiFi 6 - 0GB - S/ 15.0
+OF017,Paquete Streaming Video,paquete_adicional,ambos,False,19.9,0,0,,,Paquete Streaming Video - 0GB - S/ 19.9
+OF018,Paquete Seguridad Digital,paquete_adicional,ambos,False,12.9,0,0,,,Paquete Seguridad Digital - 0GB - S/ 12.9
+OF019,Paquete Roaming Internacional,paquete_adicional,movil,False,29.9,0,5,,,Paquete Roaming Internacional - 5GB - S/ 29.9
+OF020,Movistar Total Basico,movistar_total,ambos,True,149.9,20,30,,,Movistar Total Basico - 30GB - S/ 149.9
+OF021,Movistar Total Plus,movistar_total,ambos,True,189.9,35,60,,,Movistar Total Plus - 60GB - S/ 189.9
+OF022,Movistar Total Max,movistar_total,ambos,True,229.9,50,9999,,,Movistar Total Max - 9999GB - S/ 229.9

@@ -1,0 +1,16 @@
+# Tema de marca Movistar. La interfaz está diseñada sobre fondo claro con
+# tarjetas blancas, así que el tema se fija explícitamente para que no dependa
+# de la preferencia de sistema del equipo donde se hace la demo.
+[theme]
+base = "light"
+primaryColor = "#019DF4"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F8FA"
+textColor = "#0B2739"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
