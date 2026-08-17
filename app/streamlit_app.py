@@ -190,6 +190,19 @@ def cargar_asistente(api_key: str, modelo: str):
     return AsistenteComercial(api_key=api_key or None, modelo=modelo)
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
+def modelos_disponibles(api_key: str) -> list:
+    """
+    Modelos que habilita la credencial en uso. Se consulta a la API una vez por
+    hora y por key: así el selector nunca ofrece un modelo que después falle con
+    'no disponible para esta API key'.
+    """
+    try:
+        return AsistenteComercial(api_key=api_key or None).listar_modelos()
+    except Exception:
+        return []
+
+
 @st.cache_data(show_spinner=False)
 def obtener_recomendaciones(_motor, cliente_id: str, top_n: int = 8):
     # Se piden más de las que se muestran: el motor de rebate necesita
@@ -363,10 +376,6 @@ with st.sidebar:
             st.caption(f'Cliente **{cliente_id}**')
 
     st.markdown('<div class="mv-side-title">Asistente de IA generativa</div>', unsafe_allow_html=True)
-    modelo = st.selectbox('Modelo', list(MODELOS.keys()),
-                          index=list(MODELOS.keys()).index(MODELO_POR_DEFECTO),
-                          format_func=lambda m: m, label_visibility='collapsed')
-    st.caption(MODELOS[modelo])
 
     # El desplegable se abre solo cuando falta la credencial: si ya está puesta
     # (o viene por entorno), no estorba en la pantalla del asesor.
@@ -381,7 +390,16 @@ with st.sidebar:
         if api_key_input != st.session_state.get('gemini_key', ''):
             st.session_state['gemini_key'] = api_key_input
             st.session_state.pop('ia_cache', None)
+            modelos_disponibles.clear()
         probar = st.button('Probar conexión', width='stretch')
+
+    # El selector ofrece lo que la API key habilita de verdad, consultado a la
+    # API. Si no hay credencial o la consulta falla, se cae a la lista sugerida.
+    opciones_modelo = modelos_disponibles(st.session_state.get('gemini_key', '')) or list(MODELOS)
+    indice = opciones_modelo.index(MODELO_POR_DEFECTO) if MODELO_POR_DEFECTO in opciones_modelo else 0
+    modelo = st.selectbox('Modelo', opciones_modelo, index=indice, label_visibility='collapsed')
+    if MODELOS.get(modelo):
+        st.caption(MODELOS[modelo])
 
     asistente = cargar_asistente(st.session_state.get('gemini_key', ''), modelo)
 

@@ -32,14 +32,24 @@ import json
 import os
 import time
 
-# Modelos habilitados en la interfaz. Flash es el predeterminado porque el
-# asesor está frente al cliente: la latencia importa más que la elaboración.
+# Modelos sugeridos, en el orden en que se ofrecen. Es solo el respaldo y el
+# criterio de orden: la interfaz consulta a la API qué modelos habilita
+# realmente la API key en uso (ver AsistenteComercial.listar_modelos), porque el
+# catálogo de Google cambia y no todas las keys tienen acceso a lo mismo.
+# Se prioriza Flash porque el asesor está frente al cliente: la latencia importa
+# más que la elaboración.
 MODELOS = {
-    'gemini-2.5-flash': 'Rápido — recomendado para atención en vivo',
-    'gemini-2.5-flash-lite': 'Muy rápido — menor costo por consulta',
-    'gemini-2.5-pro': 'Más elaborado — para preparar campañas',
+    'gemini-3.5-flash': 'Rápido y sólido — recomendado para atención en vivo',
+    'gemini-3.5-flash-lite': 'El más rápido y económico de la familia 3.5',
+    'gemini-3.7-flash': 'El más capaz de los Flash — para preparar campañas',
+    'gemini-3.6-flash': 'Generación anterior de Flash',
+    'gemini-2.5-flash': 'Familia 2.5, por compatibilidad',
+    'gemini-2.5-flash-lite': 'Familia 2.5 en su variante más rápida',
 }
-MODELO_POR_DEFECTO = 'gemini-2.5-flash'
+MODELO_POR_DEFECTO = 'gemini-3.5-flash'
+
+# Modelos que no sirven para esta tarea aunque la key los habilite.
+_EXCLUIR_DEL_LISTADO = ('image', 'embedding', 'tts', 'aqa', 'vision', 'live', 'native-audio')
 
 GB_ILIMITADO = 9999
 
@@ -449,8 +459,9 @@ class AsistenteComercial:
         try:
             from google.genai import types
             config_kwargs = dict(max_output_tokens=64, temperature=0)
-            if self.modelo.startswith('gemini-2.5') and not self.modelo.endswith('pro'):
-                config_kwargs['thinking_config'] = types.ThinkingConfig(thinking_budget=0)
+            pensamiento = self._config_pensamiento(types)
+            if pensamiento is not None:
+                config_kwargs['thinking_config'] = pensamiento
 
             self._client.models.generate_content(
                 model=self.modelo,
@@ -460,6 +471,49 @@ class AsistenteComercial:
             return True, f'Conexión correcta con {self.modelo}.'
         except Exception as exc:
             return False, _mensaje_error(exc)
+
+    def listar_modelos(self) -> list:
+        """
+        Modelos de texto que ESTA API key puede usar con generateContent.
+
+        Se consulta a la API en vez de mantener una lista fija en el código: el
+        catálogo de Google cambia y dos keys distintas no habilitan lo mismo.
+        Los modelos sugeridos en MODELOS se muestran primero, y el resto va
+        ordenado alfabéticamente.
+        """
+        if not self.disponible:
+            return []
+
+        disponibles = []
+        for modelo in self._client.models.list():
+            acciones = modelo.supported_actions or []
+            if acciones and 'generateContent' not in acciones:
+                continue
+            nombre = (modelo.name or '').split('/')[-1]
+            if not nombre.startswith('gemini'):
+                continue
+            if any(excluido in nombre for excluido in _EXCLUIR_DEL_LISTADO):
+                continue
+            disponibles.append(nombre)
+
+        disponibles = sorted(set(disponibles))
+        sugeridos = [m for m in MODELOS if m in disponibles]
+        return sugeridos + [m for m in disponibles if m not in sugeridos]
+
+    def _config_pensamiento(self, types):
+        """
+        Reduce el razonamiento extendido al mínimo que acepte cada familia.
+
+        La tarea es redacción acotada sobre datos ya decididos: pensar más no
+        mejora el argumentario y sí agrega segundos con el cliente delante. El
+        parámetro cambió entre familias (2.5 usa `thinking_budget`, 3.x usa
+        `thinking_level`), y para un modelo desconocido no se manda nada.
+        """
+        if self.modelo.startswith('gemini-3'):
+            return types.ThinkingConfig(thinking_level='MINIMAL')
+        if self.modelo.startswith('gemini-2.5') and not self.modelo.endswith('pro'):
+            return types.ThinkingConfig(thinking_budget=0)
+        return None
 
     def _generar(self, prompt: str, schema: dict, temperatura: float = 0.7) -> dict:
         from google.genai import types
@@ -471,17 +525,30 @@ class AsistenteComercial:
             response_schema=schema,
             max_output_tokens=2048,
         )
-        # El razonamiento extendido de la familia 2.5 no aporta a una tarea de
-        # redacción acotada y sí agrega segundos frente al cliente.
-        if self.modelo.startswith('gemini-2.5') and not self.modelo.endswith('pro'):
-            config_kwargs['thinking_config'] = types.ThinkingConfig(thinking_budget=0)
+        pensamiento = self._config_pensamiento(types)
+        if pensamiento is not None:
+            config_kwargs['thinking_config'] = pensamiento
 
         inicio = time.perf_counter()
-        resp = self._client.models.generate_content(
-            model=self.modelo,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
+        try:
+            resp = self._client.models.generate_content(
+                model=self.modelo,
+                contents=prompt,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+        except Exception as exc:
+            # El usuario puede elegir cualquier modelo que habilite su key,
+            # incluidos los que no existían al escribir esto. Si el rechazo es
+            # por el control de razonamiento, se reintenta sin él antes de dar
+            # la llamada por perdida.
+            if 'thinking' not in str(exc).lower() or pensamiento is None:
+                raise
+            config_kwargs.pop('thinking_config')
+            resp = self._client.models.generate_content(
+                model=self.modelo,
+                contents=prompt,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
         latencia = (time.perf_counter() - inicio) * 1000
 
         texto = (resp.text or '').strip()

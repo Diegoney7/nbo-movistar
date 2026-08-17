@@ -19,7 +19,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 from nbo_engine import NBOEngine
-from llm_assistant import AsistenteComercial, construir_ficha, MODELO_POR_DEFECTO
+from llm_assistant import (AsistenteComercial, construir_ficha, MODELO_POR_DEFECTO,
+                           _mensaje_error)
 from rebate_policy import MOTIVO_LABEL
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,15 +31,36 @@ def titulo(texto):
 
 
 def main():
-    asistente = AsistenteComercial(modelo=MODELO_POR_DEFECTO)
+    modelo = os.environ.get('GEMINI_MODEL', MODELO_POR_DEFECTO)
+    asistente = AsistenteComercial(modelo=modelo)
 
-    titulo('1. Credencial')
-    if asistente.disponible:
-        ok, mensaje = asistente.verificar()
-        print(f'   {"OK" if ok else "ERROR"}: {mensaje}')
-    else:
+    titulo('1. Credencial y modelos habilitados')
+    if not asistente.disponible:
         print(f'   Sin IA: {asistente.error}')
         print('   El motor seguirá funcionando con argumentarios de plantilla.')
+    else:
+        try:
+            habilitados = asistente.listar_modelos()
+        except Exception as exc:
+            habilitados = []
+            print(f'   No se pudo listar los modelos: {_mensaje_error(exc)}')
+
+        if habilitados:
+            print(f'   La API key habilita {len(habilitados)} modelos de texto:')
+            for nombre in habilitados[:12]:
+                print(f'     - {nombre}{"   <- en uso" if nombre == modelo else ""}')
+            if len(habilitados) > 12:
+                print(f'     ... y {len(habilitados) - 12} más')
+            # Si el modelo elegido no está habilitado, se usa el primero de la
+            # lista en vez de fallar: es el error más común al cambiar de key.
+            if modelo not in habilitados:
+                print(f'   AVISO: {modelo} no está habilitado para esta key. '
+                      f'Se usará {habilitados[0]}.')
+                asistente = AsistenteComercial(modelo=habilitados[0])
+                modelo = habilitados[0]
+
+        ok, mensaje = asistente.verificar()
+        print(f'   {"OK" if ok else "ERROR"}: {mensaje}')
 
     titulo('2. Motor NBO')
     motor = NBOEngine(
