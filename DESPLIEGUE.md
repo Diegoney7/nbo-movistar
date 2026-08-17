@@ -107,9 +107,17 @@ de la API key.
 
 ### Actualizar la app
 
-Cada `git push` a `main` redespliega automáticamente. Si se cambia
-`requirements.txt` o `packages.txt`, conviene usar **Reboot app** desde el panel
-para forzar la reinstalación limpia del entorno.
+Cada `git push` a `main` redespliega automáticamente. Pero hay dos casos en los
+que hace falta **Reboot app** desde *Manage app*, porque el redespliegue solo no
+alcanza:
+
+| Qué cambiaste | Por qué hay que reiniciar |
+| --- | --- |
+| `requirements.txt` o `packages.txt` | Para forzar la reinstalación limpia del entorno |
+| Cualquier módulo de `src/` | Python cachea los módulos ya importados en `sys.modules`: Cloud recarga `app/streamlit_app.py` pero puede seguir usando la versión anterior de `src/`, y aparece un `ImportError` de una función que sí existe en el repositorio |
+
+El segundo caso se reconoce fácil: el error menciona una función nueva y el
+traceback apunta a un archivo de `/mount/src/...` que en GitHub sí la tiene.
 
 ---
 
