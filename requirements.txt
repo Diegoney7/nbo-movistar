@@ -16,4 +16,8 @@ streamlit==1.57.0
 plotly==6.7.0
 
 # IA generativa: argumentario de venta y speech de rebate (src/llm_assistant.py).
-google-genai==1.73.1
+# Acá NO se fija una versión exacta, al revés que con los modelos: el catálogo de
+# Gemini avanza y una versión clavada deja de reconocer los modelos nuevos.
+# Google recomienda 2.0+ para la familia 3.x. El tope evita el próximo cambio
+# mayor de la API sin revisarlo antes.
+google-genai>=2.18,<3
