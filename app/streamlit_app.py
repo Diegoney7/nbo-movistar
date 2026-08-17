@@ -18,11 +18,13 @@ import sys
 
 import joblib
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 from nbo_engine import NBOEngine
 from rebate_policy import MOTIVOS, MOTIVO_LABEL
+from segment_policy import MACRO_INFO
 from llm_assistant import (AsistenteComercial, MODELOS, construir_ficha,
                            elegir_modelo, resolver_api_key, resolver_modelo)
 
@@ -220,14 +222,33 @@ def obtener_segmentos(_motor):
     return _motor.get_segment_overview()
 
 
+EJES_TIPICO = ['monto_facturado_prom', 'consumo_datos_gb_prom', 'antiguedad_meses']
+
+
 @st.cache_data(show_spinner=False)
 def clientes_de_ejemplo(_motor):
-    """Un cliente representativo por macro-segmento, para recorrer la demo."""
+    """
+    Un cliente típico por macro-segmento, en orden de prioridad comercial.
+
+    Dos decisiones que antes quedaban al azar:
+    - El cliente se elige por cercanía al centro del segmento (factura, consumo y
+      antigüedad estandarizados), no por posición en el archivo. Con la primera
+      fila el ejemplo dependía del orden del CSV y podía ser un caso atípico.
+    - El orden es el de MACRO_INFO['prioridad'], la misma política que usa el
+      motor para rankear. Agrupar por la columna ordenaba por la clave técnica
+      (BRECHA_HOGAR, BRECHA_MOVIL, ...), que el asesor nunca ve.
+    """
     df = _motor.clientes_feat
     ejemplos = {}
-    for macro, grupo in df.groupby('macro_segmento'):
-        etiqueta = grupo.iloc[0]['segmento_label'].split(' · ')[0]
-        ejemplos[f"{etiqueta} — {grupo.iloc[0]['cliente_id']}"] = grupo.iloc[0]['cliente_id']
+    for macro in sorted(MACRO_INFO, key=lambda m: MACRO_INFO[m]['prioridad']):
+        grupo = df[df['macro_segmento'] == macro]
+        if grupo.empty:
+            continue
+        desv = grupo[EJES_TIPICO].std(ddof=0).replace(0, 1)
+        z = ((grupo[EJES_TIPICO] - grupo[EJES_TIPICO].mean()) / desv).abs().sum(axis=1)
+        tipico = grupo.loc[z.idxmin()]
+        etiqueta = f"{MACRO_INFO[macro]['etiqueta']} — {tipico['cliente_id']}"
+        ejemplos[etiqueta] = tipico['cliente_id']
     return ejemplos
 
 
@@ -235,6 +256,13 @@ def clientes_de_ejemplo(_motor):
 
 def esc(texto) -> str:
     return html.escape(str(texto if texto is not None else ''))
+
+
+def plural(n, singular, plural_) -> str:
+    """Concordancia de número. La pantalla la lee un cliente por encima del
+    hombro del asesor: '1 meses con mora' descuida toda la ficha."""
+    n = int(n or 0)
+    return f'{n:,} {singular if n == 1 else plural_}'
 
 
 # Los nombres técnicos de las columnas no se muestran nunca: las vistas de
@@ -254,11 +282,54 @@ ETIQUETAS = {
     'k': 'K', 'inercia': 'Inercia', 'silhouette': 'Silhouette', 'davies_bouldin': 'Davies-Bouldin',
     'cluster_min_pct': 'Grupo más pequeño (%)',
 }
-MACRO_ETIQUETA = {
-    'YA_MT': 'Ya es Movistar Total', 'ELEGIBLE_MT': 'Elegible Movistar Total',
-    'BRECHA_HOGAR': 'Le falta hogar', 'BRECHA_MOVIL': 'Le falta móvil postpago',
-    'NO_CONVERGENTE': 'Sin ruta directa a MT',
+# Las etiquetas de macro-segmento salen de la política de negocio, no de una
+# copia local: mantener dos diccionarios hacía que la ficha del asesor dijera
+# "Le falta hogar para MT" y las tablas de gestión "Le falta hogar".
+MACRO_ETIQUETA = {macro: info['etiqueta'] for macro, info in MACRO_INFO.items()}
+MACRO_ORDEN = sorted(MACRO_INFO, key=lambda m: MACRO_INFO[m]['prioridad'])
+
+# La regla de arriba vale también para los VALORES, no solo para los nombres de
+# columna: el medio probatorio venía del CSV en snake_case y llegaba tal cual a
+# la tabla que lee gestión ("audio_llamada", "registro_plataforma").
+MEDIO_ETIQUETA = {
+    'audio_llamada': 'Audio de la llamada',
+    'chat_log': 'Registro del chat',
+    'registro_plataforma': 'Registro en plataforma',
 }
+VALOR_ETIQUETA = {**MACRO_ETIQUETA, **MEDIO_ETIQUETA}
+
+# A quién sirve cada vista. Los tres usuarios salen del desafío: asesores y
+# canales de atención, y Producto y Marketing.
+AUDIENCIA = {
+    'Asesor comercial': 'Para el asesor, durante la llamada o la visita.',
+    'Funnel E2E del ofrecimiento': 'Para gestión comercial: trazabilidad del ofrecimiento.',
+    'Segmentación de clientes': 'Para Producto y Marketing: dónde armar campaña.',
+}
+
+# Qué le falta al cliente para tener Movistar Total. Acompaña a la tarjeta de
+# servicios contratados: el dato de al lado tiene que hablar de lo mismo que el
+# título de la tarjeta.
+BRECHA_SERVICIO = {
+    'YA_MT': 'Convergencia completa',
+    'ELEGIBLE_MT': 'Ya cumple los requisitos de MT',
+    'BRECHA_HOGAR': 'Le falta internet hogar',
+    'BRECHA_MOVIL': 'Le falta móvil postpago',
+    'NO_CONVERGENTE': 'Requiere migrar a postpago primero',
+}
+
+
+def brecha_de_servicio(cliente) -> str:
+    """
+    Qué falta para MT, dicho como lo diría el asesor.
+
+    BRECHA_MOVIL junta dos casos distintos —quien no tiene móvil y quien lo
+    tiene prepago— y al segundo decirle "le falta móvil" contradice la propia
+    tarjeta, que muestra móvil contratado.
+    """
+    macro = cliente['macro_segmento']
+    if macro == 'BRECHA_MOVIL' and cliente['tiene_movil']:
+        return 'Su móvil es prepago: falta postpago'
+    return BRECHA_SERVICIO.get(macro, '')
 
 
 def tabla(df, **kwargs):
@@ -266,13 +337,13 @@ def tabla(df, **kwargs):
     d = df.copy()
     if isinstance(d, pd.Series):
         d = d.to_frame()
-    d = d.rename(columns=ETIQUETAS)
+    d = d.rename(columns=ETIQUETAS).rename(columns=VALOR_ETIQUETA)
     d.index = d.index.set_names([ETIQUETAS.get(n, n) for n in d.index.names])
     if d.index.nlevels == 1:
-        d.index = d.index.map(lambda v: MACRO_ETIQUETA.get(v, v))
+        d.index = d.index.map(lambda v: VALOR_ETIQUETA.get(v, v))
     else:
         d.index = pd.MultiIndex.from_tuples(
-            [tuple(MACRO_ETIQUETA.get(v, v) for v in fila) for fila in d.index],
+            [tuple(VALOR_ETIQUETA.get(v, v) for v in fila) for fila in d.index],
             names=d.index.names)
     for col in d.select_dtypes('float').columns:
         d[col] = d[col].round(2)
@@ -299,6 +370,76 @@ def tiles(items):
             f'<div class="sub">{esc(detalle)}</div></div>'
         )
     st.markdown(f'<div class="mv-stats">{"".join(piezas)}</div>', unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------- gráficos ---
+# Paleta de marca aplicada a Plotly, y una sola familia de gráfico: barras
+# horizontales planas. El trapecio del go.Funnel de Plotly codifica el volumen
+# en un área inclinada, que se lee peor que una longitud y sugiere una
+# profundidad que no existe en el dato. Con barras, dos etapas parecidas se
+# distinguen por lo único que hay que comparar: el largo.
+
+COLOR_DEEP = '#0B2739'
+COLOR_BLUE = '#019DF4'
+COLOR_GREEN = '#5CB615'
+COLOR_SOFT = '#8A99A6'
+COLOR_INK = '#12303F'
+COLOR_LINE = '#E1E8ED'
+
+# El color no decora: dice qué hacer con el segmento. Azul de marca = donde está
+# el objetivo del desafío, verde = ya convertido, azul profundo = trabajable,
+# gris = sin ruta directa.
+COLOR_MACRO = {
+    'ELEGIBLE_MT': COLOR_BLUE,
+    'YA_MT': COLOR_GREEN,
+    'BRECHA_HOGAR': COLOR_DEEP,
+    'BRECHA_MOVIL': COLOR_DEEP,
+    'NO_CONVERGENTE': COLOR_SOFT,
+}
+
+
+def barras(etiquetas, valores, colores, texto=None, notas=None, holgura=1.42, alto_fila=44):
+    """
+    Barras horizontales de arriba hacia abajo.
+
+    El valor va dentro de la barra ('auto' lo saca afuera si no entra, en vez de
+    esconderlo) y la lectura de negocio —conversión, aceptación— se alinea a la
+    derecha del área de dibujo. Alineadas en columna se comparan entre sí, y no
+    chocan con el valor por más corta que quede la barra.
+    """
+    etiquetas, valores = list(etiquetas), list(valores)
+    fig = go.Figure(go.Bar(
+        x=valores, y=etiquetas, orientation='h',
+        marker=dict(color=colores, line=dict(width=0)),
+        text=texto or [f'{v:,.0f}' for v in valores],
+        textposition='auto', insidetextanchor='start',
+        insidetextfont=dict(color='#fff', size=13.5),
+        outsidetextfont=dict(color=COLOR_INK, size=13.5),
+        constraintext='none', cliponaxis=False,
+        hovertemplate='%{y}<br>%{x:,.0f}<extra></extra>',
+    ))
+    for etiqueta, nota in zip(etiquetas, notas or [None] * len(valores)):
+        if nota:
+            fig.add_annotation(x=1, y=etiqueta, xref='paper', yref='y', text=nota,
+                               showarrow=False, xanchor='right',
+                               font=dict(size=12, color=COLOR_SOFT))
+    fig.update_yaxes(autorange='reversed', showgrid=False, zeroline=False,
+                     ticksuffix='   ', tickfont=dict(size=12.5, color=COLOR_INK),
+                     automargin=True)
+    fig.update_xaxes(visible=False, range=[0, max(valores) * holgura])
+    fig.update_layout(
+        height=52 + alto_fila * len(etiquetas), bargap=0.36,
+        margin=dict(l=0, r=6, t=6, b=6),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False, font=dict(family='sans-serif', color=COLOR_INK),
+        hoverlabel=dict(bgcolor='#fff', bordercolor=COLOR_LINE,
+                        font=dict(color=COLOR_INK, size=12)),
+    )
+    return fig
+
+
+def grafico(fig):
+    st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
 
 
 def nivel_probabilidad(p):
@@ -357,21 +498,34 @@ catalogo_nombres = dict(zip(motor.ofertas['oferta_id'], motor.ofertas['nombre_of
 with st.sidebar:
     st.markdown('<div class="mv-side-title">Vista</div>', unsafe_allow_html=True)
     vista = st.radio(
-        'Vista', ['Asesor comercial', 'Funnel E2E del ofrecimiento', 'Segmentación de clientes'],
-        label_visibility='collapsed',
+        'Vista', list(AUDIENCIA), label_visibility='collapsed',
     )
+    # Cada vista tiene un usuario distinto de los que nombra el desafío. Decirlo
+    # en la barra evita que el asesor entre a pantallas de gestión buscando algo
+    # que le sirva para la llamada.
+    st.caption(AUDIENCIA[vista])
 
     cliente_id = None
     if vista == 'Asesor comercial':
         st.markdown('<div class="mv-side-title">Cliente</div>', unsafe_allow_html=True)
-        ejemplos = clientes_de_ejemplo(motor)
-        opciones = ['Buscar por código'] + list(ejemplos.keys())
-        eleccion = st.selectbox('Cliente', opciones, label_visibility='collapsed',
-                                help='Los ejemplos recorren un cliente de cada situación comercial.')
-        if eleccion == 'Buscar por código':
+
+        # Buscar por código es un modo de trabajo, no un cliente: mezclarlo en la
+        # misma lista hacía que al desplegar apareciera como si fuera uno más.
+        modo = st.segmented_control(
+            'Modo de búsqueda', ['Casos de ejemplo', 'Por código'],
+            default='Casos de ejemplo', label_visibility='collapsed',
+        ) or 'Casos de ejemplo'
+
+        if modo == 'Por código':
             cliente_id = st.text_input('Código de cliente', value='CLI000001',
-                                       placeholder='CLI000001').strip().upper()
+                                       placeholder='CLI000001',
+                                       label_visibility='collapsed').strip().upper()
         else:
+            ejemplos = clientes_de_ejemplo(motor)
+            eleccion = st.selectbox(
+                'Cliente', list(ejemplos), label_visibility='collapsed',
+                help='Un cliente típico de cada situación comercial, ordenados por la '
+                     'prioridad de ofrecimiento que aplica el motor.')
             cliente_id = ejemplos[eleccion]
             st.caption(f'Cliente **{cliente_id}**')
 
@@ -505,17 +659,27 @@ def vista_asesor(cliente_id):
     seccion(1, 'Perfil del cliente', 'Lo que el asesor necesita saber antes de hablar.')
 
     chips = []
+    estado_mt = None
     if cliente['es_movistar_total']:
-        chips.append(('chip-green', 'Ya es Movistar Total'))
+        estado_mt = ('chip-green', 'Ya es Movistar Total')
     elif cliente['elegible_mt']:
-        chips.append(('chip-blue', 'Elegible Movistar Total'))
+        estado_mt = ('chip-blue', 'Elegible Movistar Total')
+    if estado_mt:
+        chips.append(estado_mt)
     if segmento:
-        chips.append(('chip-grey', segmento['macro_etiqueta']))
-        chips.append(('chip-grey', segmento['segmento_comportamental']))
+        # En YA_MT y ELEGIBLE_MT la etiqueta del macro-segmento es exactamente el
+        # estado que ya se muestra en color: se omite para no repetir el chip.
+        if not estado_mt or segmento['macro_etiqueta'] != estado_mt[1]:
+            chips.append(('chip-grey', segmento['macro_etiqueta']))
+        # El nombre del cluster describe al GRUPO, no al cliente: el segmento
+        # "Reciente" promedia 38 meses pero llega hasta 180, así que sin el
+        # prefijo el chip contradecía la antigüedad que se muestra debajo.
+        chips.append(('chip-grey', f"Segmento {segmento['segmento_comportamental']}"))
+    chips.append(('chip-grey', f"{cliente['edad_rango']} años · {cliente['ubicacion_departamento']}"))
     if int(cliente['meses_moroso'] or 0) > 0:
-        chips.append(('chip-amber', f"{int(cliente['meses_moroso'])} meses con mora"))
+        chips.append(('chip-amber', plural(cliente['meses_moroso'], 'mes con mora', 'meses con mora')))
     if int(cliente['n_reclamos'] or 0) > 0:
-        chips.append(('chip-red', f"{int(cliente['n_reclamos'])} reclamos"))
+        chips.append(('chip-red', plural(cliente['n_reclamos'], 'reclamo', 'reclamos')))
     if cliente['es_usuario_app']:
         chips.append(('chip-blue', 'Usuario de la app'))
 
@@ -528,15 +692,16 @@ def vista_asesor(cliente_id):
         ('Plan actual', catalogo_nombres.get(cliente['plan_actual_id'], cliente['plan_actual_id']),
          f"Cliente {cliente['tipo_cliente']}", False),
         ('Factura mensual', f"S/ {cliente['monto_facturado_prom']:.2f}",
-         f"{int(cliente['antiguedad_meses'])} meses de antigüedad", False),
+         plural(cliente['antiguedad_meses'], 'mes de antigüedad', 'meses de antigüedad'), False),
         ('Consumo de datos', f"{cliente['consumo_datos_gb_prom']:.1f} GB",
          f"{cliente['consumo_voz_min_prom']:.0f} min de voz al mes", False),
         ('Servicios contratados',
          'Móvil + Hogar' if cliente['tiene_movil'] and cliente['tiene_internet_hogar']
          else ('Solo móvil' if cliente['tiene_movil'] else 'Solo hogar'),
-         f"{cliente['edad_rango']} años · {cliente['ubicacion_departamento']}", False),
+         brecha_de_servicio(cliente), False),
         ('Canal habitual', cliente['canal_mas_usado'],
-         f"{int(cliente['n_actividad_canal'])} interacciones registradas", False),
+         plural(cliente['n_actividad_canal'], 'interacción registrada',
+                'interacciones registradas'), False),
     ])
 
     if segmento:
@@ -785,17 +950,24 @@ def vista_funnel():
     izq, der = st.columns([3, 2], gap='medium')
 
     with izq:
-        import plotly.graph_objects as go
-        fig = go.Figure(go.Funnel(
-            y=f['etapas']['etapa'].tolist(),
-            x=f['etapas']['volumen'].tolist(),
-            textinfo='value+percent initial',
-            marker=dict(color=['#0B2739', '#019DF4', '#5CB615']),
-        ))
-        fig.update_layout(height=330, margin=dict(l=10, r=10, t=20, b=10),
-                          paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                          font=dict(family='sans-serif', color='#0B2739'))
-        st.plotly_chart(fig, width='stretch', config={'displayModeBar': False})
+        st.markdown('##### Del ofrecimiento a la venta')
+        etapas = f['etapas']
+        volumenes = etapas['volumen'].tolist()
+        inicial = volumenes[0]
+        # El número de etapa ya lo da la posición en el gráfico, y el detalle del
+        # medio probatorio está en la tabla de al lado: en el eje solo va el nombre.
+        nombres = [e.split('. ', 1)[-1].split(' (')[0] for e in etapas['etapa']]
+
+        notas = [None if pd.isna(conv) else f'{conv:.1f}% del paso anterior'
+                 for conv in etapas['conversion_vs_anterior']]
+
+        grafico(barras(nombres, volumenes,
+                       [COLOR_DEEP, COLOR_BLUE, COLOR_GREEN],
+                       texto=[f'  {v:,}' for v in volumenes],
+                       notas=notas, holgura=1.55, alto_fila=62))
+        st.caption(f'De los {inicial:,} ofrecimientos, {volumenes[-1] / inicial * 100:.1f}% termina '
+                   'en venta. La pérdida no está en el contacto —se alcanza al 85%— sino en el '
+                   'cierre: de cada 100 clientes contactados, 37 compran.')
 
     with der:
         st.markdown('##### Medios probatorios')
@@ -824,33 +996,91 @@ def vista_funnel():
 
 def vista_segmentos():
     st.markdown('## Segmentación inteligente de la base')
-    st.caption('Dos ejes: la brecha hacia Movistar Total (regla de negocio) cruzada con el '
-               'comportamiento del cliente (clustering). Es la vista para Producto y Marketing.')
+    st.caption('Vista de Producto y Marketing: cómo se reparte la base y a qué grupo conviene '
+               'armarle campaña. El asesor no entra acá — él recibe el segmento ya aplicado en la '
+               'ficha del cliente y en el argumentario.')
 
     with st.spinner('Calculando segmentos sobre la base...'):
         ov = obtener_segmentos(motor)
 
-    st.markdown('##### Eje A · Brecha hacia Movistar Total')
-    a, b = st.columns([1, 2], gap='medium')
-    with a:
-        tabla(ov['tamano_macro'])
-    with b:
-        tabla(ov['aceptacion_macro'])
-    st.info('La elegibilidad para Movistar Total es el eje que más discrimina: los clientes '
-            'elegibles aceptan muy por encima del resto de la base.')
+    tam, acc = ov['tamano_macro'], ov['aceptacion_macro']
+    base = int(tam.sum())
+    elegibles = int(tam.get('ELEGIBLE_MT', 0))
+    tasa_elegible = float(acc.loc['ELEGIBLE_MT', 'tasa_aceptacion'])
+    resto = acc.drop(index='ELEGIBLE_MT', errors='ignore')
+    tasa_resto = ((resto['tasa_aceptacion'] * resto['ofrecimientos']).sum()
+                  / resto['ofrecimientos'].sum())
 
-    st.markdown(f'##### Eje B · Comportamiento del cliente (K={ov["k"]})')
-    # El nombre del segmento va de índice: es lo que Marketing lee, no el número
-    # de cluster, y así queda siempre visible aunque la tabla se desplace.
-    perfil = ov['perfil_clusters'].reset_index().set_index('nombre')
-    perfil.index.name = 'Segmento'
-    tabla(perfil.drop(columns=['cluster'], errors='ignore'))
-    tabla(ov['aceptacion_comportamental'])
+    tiles([
+        ('Base clasificada', f'{base:,}', 'clientes en los dos ejes', False),
+        ('Elegibles MT hoy', f'{elegibles:,}', f'{elegibles / base * 100:.1f}% de la base', True),
+        ('Aceptación del elegible', f'{tasa_elegible:.1f}%',
+         f'vs. {tasa_resto:.1f}% del resto de la base', True),
+        ('Perfiles de comportamiento', f'{ov["k"]}', 'consumo, riesgo y antigüedad', False),
+    ])
 
-    st.markdown('##### Cruce de ejes · Aceptación de ofertas Movistar Total')
+    st.markdown('<div style="height:22px"></div>', unsafe_allow_html=True)
+
+    # --- Eje A: dónde está el potencial -------------------------------------
+    st.markdown('##### Dónde está el potencial · brecha hacia Movistar Total')
+    st.caption('Cuántos clientes hay en cada situación comercial y cuánto aceptan históricamente. '
+               'El color indica la acción: azul, el objetivo del desafío; verde, ya convertido; '
+               'azul profundo, trabajable con una venta previa; gris, sin ruta directa.')
+    macros = [m for m in MACRO_ORDEN if m in tam.index]
+    grafico(barras(
+        [MACRO_ETIQUETA[m] for m in macros],
+        [int(tam[m]) for m in macros],
+        [COLOR_MACRO[m] for m in macros],
+        texto=[f'  {int(tam[m]):,} clientes' for m in macros],
+        notas=[f"{acc.loc[m, 'tasa_aceptacion']:.1f}% de aceptación" if m in acc.index else None
+               for m in macros],
+    ))
+    st.info(f'La elegibilidad para Movistar Total es el eje que más separa la base: el elegible '
+            f'acepta {tasa_elegible:.1f}% frente a {tasa_resto:.1f}% del resto, con la misma '
+            f'contactabilidad. Son {elegibles:,} clientes a los que hoy se les puede vender MT '
+            f'sin ninguna venta previa.')
+
+    # --- Eje B: cómo se comporta la base ------------------------------------
+    st.markdown('##### Cómo se comporta la base · perfiles de consumo y riesgo')
+    st.caption('El clustering no reemplaza al eje anterior: lo modula. Dentro de una misma '
+               'situación comercial, el comportamiento decide el argumento y el orden de llamada.')
+    perfil = ov['perfil_clusters'].set_index('nombre')
+    accb = ov['aceptacion_comportamental']
+    orden = [n for n in accb.index if n in perfil.index]
+    grafico(barras(
+        orden,
+        [int(perfil.loc[n, 'n_clientes']) for n in orden],
+        [COLOR_DEEP] * len(orden),
+        texto=[f"  {int(perfil.loc[n, 'n_clientes']):,} clientes" for n in orden],
+        notas=[f"{accb.loc[n, 'tasa_aceptacion']:.1f}% acepta  ·  "
+               f"{perfil.loc[n, 'pct_elegible_mt']:.0f}% elegible MT" for n in orden],
+        holgura=1.5,
+    ))
+
+    with st.expander('Perfil numérico de cada segmento'):
+        columnas = ['n_clientes', 'pct_base', 'monto_facturado_prom', 'consumo_datos_gb_prom',
+                    'ratio_consumo_gb', 'antiguedad_meses', 'dias_mora_prom', 'n_reclamos',
+                    'pct_elegible_mt']
+        tabla(perfil.loc[orden, columnas])
+        st.caption('Se omiten interacciones por canal y score digital: valen 5.4 y 3.0 en los '
+                   'cinco segmentos, así que ocupan ancho sin separar nada.')
+
+    # --- Cruce de ejes ------------------------------------------------------
+    cruce = ov['aceptacion_mt_cruce'].reset_index()
+    macro_unico = cruce['macro_segmento'].nunique() == 1
+    encabezado = (f'##### A quién llamar primero dentro de «{MACRO_ETIQUETA[cruce["macro_segmento"].iloc[0]]}»'
+                  if macro_unico else '##### Cruce de ejes · aceptación de Movistar Total')
+    st.markdown(encabezado)
     st.caption('Aquí la segmentación se vuelve accionable: a igual elegibilidad, el comportamiento '
-               'separa quién acepta.')
-    tabla(ov['aceptacion_mt_cruce'])
+               'separa quién acepta. Solo se muestran cruces con más de 50 ofrecimientos MT.')
+    etiquetas = [c if macro_unico else f'{MACRO_ETIQUETA[m]} · {c}'
+                 for m, c in zip(cruce['macro_segmento'], cruce['segmento_comportamental'])]
+    grafico(barras(
+        etiquetas, cruce['tasa_aceptacion_mt'].tolist(), [COLOR_BLUE] * len(cruce),
+        texto=[f'  {v:.1f}% acepta MT' for v in cruce['tasa_aceptacion_mt']],
+        notas=[f'{int(n):,} ofrecimientos' for n in cruce['ofrecimientos_mt']],
+        holgura=1.55,
+    ))
 
     with st.expander('Validación del número de clusters'):
         tabla(ov['metricas_k'])
