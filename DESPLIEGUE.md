@@ -73,14 +73,31 @@ pegar:
 
 ```toml
 GEMINI_API_KEY = "AIza..."
-```
 
-La app la lee sola (`src/llm_assistant.py` busca la key en el entorno y en los
-secrets antes de pedirla por pantalla). Con la key cargada, el asesor no ve el
-panel de credencial: entra y el botón *Generar argumentario* ya funciona.
+# Opcional: fija el modelo. Si se omite, usa el recomendado.
+GEMINI_MODEL = "gemini-3.5-flash"
+```
 
 La key **no está** en el repositorio: `.streamlit/secrets.toml` está en
 `.gitignore` y solo se versiona el ejemplo `secrets.toml.example`.
+
+#### Qué cambia en pantalla cuando la key está en el servidor
+
+La app detecta que la credencial viene del entorno o de los secrets y entra en
+**modo asesor**: desaparecen el campo de API key, el botón de probar conexión y
+el selector de modelo. El asesor entra, busca a su cliente y genera el
+argumentario; no ve —ni puede tocar— nada de configuración.
+
+Para abrir ese panel puntualmente, sin cambiar el código ni el despliegue,
+agregar `?config=1` a la URL:
+
+```
+https://tu-app.streamlit.app/?config=1
+```
+
+Sobre el modelo: si la API key no habilita el que está fijado, la app **elige
+sola el mejor disponible** en vez de mostrarle un error al asesor. Por eso el
+selector no hace falta en el día a día.
 
 ### Paso 4 — Restringir el acceso al equipo
 

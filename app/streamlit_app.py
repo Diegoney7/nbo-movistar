@@ -23,8 +23,8 @@ import streamlit as st
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 from nbo_engine import NBOEngine
 from rebate_policy import MOTIVOS, MOTIVO_LABEL
-from llm_assistant import (AsistenteComercial, MODELOS, MODELO_POR_DEFECTO,
-                           construir_ficha, resolver_api_key)
+from llm_assistant import (AsistenteComercial, MODELOS, construir_ficha,
+                           elegir_modelo, resolver_api_key, resolver_modelo)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -375,40 +375,57 @@ with st.sidebar:
             cliente_id = ejemplos[eleccion]
             st.caption(f'Cliente **{cliente_id}**')
 
-    st.markdown('<div class="mv-side-title">Asistente de IA generativa</div>', unsafe_allow_html=True)
+    # --- Credencial y modelo ------------------------------------------------
+    # Si la API key viene del servidor (secrets de Streamlit o variable de
+    # entorno), la pantalla es solo del asesor: no se muestra nada de
+    # configuración. El panel técnico queda accesible agregando ?config=1 a la
+    # URL, para que el equipo pueda cambiar de modelo o probar la conexión sin
+    # tocar el código ni exponerle nada al asesor.
+    key_del_servidor = resolver_api_key()
+    modo_config = not key_del_servidor or st.query_params.get('config') == '1'
 
-    # El desplegable se abre solo cuando falta la credencial: si ya está puesta
-    # (o viene por entorno), no estorba en la pantalla del asesor.
-    with st.expander('Configurar credencial',
-                     expanded=not resolver_api_key(st.session_state.get('gemini_key', ''))):
-        api_key_input = st.text_input(
-            'API key de Google Gemini', type='password',
-            value=st.session_state.get('gemini_key', ''),
-            help='Se guarda solo en esta sesión del navegador. También se puede definir '
-                 'la variable de entorno GEMINI_API_KEY o el archivo .streamlit/secrets.toml.',
-        )
-        if api_key_input != st.session_state.get('gemini_key', ''):
-            st.session_state['gemini_key'] = api_key_input
-            st.session_state.pop('ia_cache', None)
-            modelos_disponibles.clear()
-        probar = st.button('Probar conexión', width='stretch')
+    probar = False
+    key_de_sesion = st.session_state.get('gemini_key', '')
+
+    if modo_config:
+        st.markdown('<div class="mv-side-title">Asistente de IA generativa</div>',
+                    unsafe_allow_html=True)
+        with st.expander('Configurar credencial', expanded=not key_del_servidor):
+            api_key_input = st.text_input(
+                'API key de Google Gemini', type='password', value=key_de_sesion,
+                help='Se guarda solo en esta sesión del navegador. Para dejarla fija, usar '
+                     'los secrets de Streamlit o la variable de entorno GEMINI_API_KEY.',
+            )
+            if api_key_input != key_de_sesion:
+                st.session_state['gemini_key'] = api_key_input
+                key_de_sesion = api_key_input
+                st.session_state.pop('ia_cache', None)
+                modelos_disponibles.clear()
+            probar = st.button('Probar conexión', width='stretch')
 
     # El selector ofrece lo que la API key habilita de verdad, consultado a la
     # API. Si no hay credencial o la consulta falla, se cae a la lista sugerida.
-    opciones_modelo = modelos_disponibles(st.session_state.get('gemini_key', '')) or list(MODELOS)
-    indice = opciones_modelo.index(MODELO_POR_DEFECTO) if MODELO_POR_DEFECTO in opciones_modelo else 0
-    modelo = st.selectbox('Modelo', opciones_modelo, index=indice, label_visibility='collapsed')
-    if MODELOS.get(modelo):
-        st.caption(MODELOS[modelo])
+    opciones_modelo = modelos_disponibles(key_de_sesion) or list(MODELOS)
+    modelo = elegir_modelo(resolver_modelo(), opciones_modelo)
 
-    asistente = cargar_asistente(st.session_state.get('gemini_key', ''), modelo)
+    if modo_config:
+        modelo = st.selectbox('Modelo', opciones_modelo,
+                              index=opciones_modelo.index(modelo),
+                              label_visibility='collapsed')
+        if MODELOS.get(modelo):
+            st.caption(MODELOS[modelo])
 
-    if asistente.disponible:
-        st.markdown(f'<div class="mv-status on">IA conectada · {esc(modelo)}</div>',
-                    unsafe_allow_html=True)
-    else:
+    asistente = cargar_asistente(key_de_sesion, modelo)
+
+    # Al asesor solo se le avisa cuando la IA NO está disponible, porque eso sí
+    # cambia lo que va a leer en pantalla. Que funcione es la normalidad y no
+    # merece ocupar espacio: el estado técnico se muestra en modo configuración.
+    if not asistente.disponible:
         st.markdown('<div class="mv-status off">Sin IA: los argumentos se generan '
                     'con plantillas del motor.</div>', unsafe_allow_html=True)
+    elif modo_config:
+        st.markdown(f'<div class="mv-status on">IA conectada · {esc(modelo)}</div>',
+                    unsafe_allow_html=True)
 
     if probar:
         with st.spinner('Verificando...'):

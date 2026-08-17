@@ -191,6 +191,42 @@ def resolver_api_key(explicita: str = None) -> str:
     return None
 
 
+def resolver_modelo(por_defecto: str = MODELO_POR_DEFECTO) -> str:
+    """
+    Modelo fijado por quien despliega, vía `GEMINI_MODEL` (variable de entorno o
+    secrets). Permite dejar la app con un modelo elegido sin tocar el código ni
+    mostrarle un selector al asesor.
+    """
+    valor = os.environ.get('GEMINI_MODEL')
+    if valor and valor.strip():
+        return valor.strip()
+
+    try:
+        import streamlit as st
+        if 'GEMINI_MODEL' in st.secrets:
+            return str(st.secrets['GEMINI_MODEL']).strip()
+    except Exception:
+        pass
+
+    return por_defecto
+
+
+def elegir_modelo(preferido: str, disponibles: list) -> str:
+    """
+    Resuelve qué modelo usar realmente.
+
+    Si la API key no habilita el preferido, se cae al mejor sustituto entre los
+    sugeridos y, en última instancia, al primero disponible. Sin esto, el asesor
+    se encuentra con un error de "modelo no disponible" que no puede resolver.
+    """
+    if not disponibles or preferido in disponibles:
+        return preferido
+    for sugerido in MODELOS:
+        if sugerido in disponibles:
+            return sugerido
+    return disponibles[0]
+
+
 # --- Ficha de datos verificados ---------------------------------------------
 
 def _gb_texto(gb) -> str:

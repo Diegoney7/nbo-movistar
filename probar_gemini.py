@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 from nbo_engine import NBOEngine
-from llm_assistant import (AsistenteComercial, construir_ficha, MODELO_POR_DEFECTO,
+from llm_assistant import (AsistenteComercial, construir_ficha, resolver_modelo,
                            _mensaje_error)
 from rebate_policy import MOTIVO_LABEL
 
@@ -31,7 +31,7 @@ def titulo(texto):
 
 
 def main():
-    modelo = os.environ.get('GEMINI_MODEL', MODELO_POR_DEFECTO)
+    modelo = resolver_modelo()
     asistente = AsistenteComercial(modelo=modelo)
 
     titulo('1. Credencial y modelos habilitados')

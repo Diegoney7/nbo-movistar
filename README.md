@@ -102,7 +102,9 @@ Los **47.572 rebates** registrados en el histórico tienen una tasa de cierre de
    cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # archivo de secretos
    ```
 
-   …o pegarla en la barra lateral de la app (*Asistente de IA generativa → Configurar credencial*), donde queda solo en la sesión del navegador. **La credencial nunca se escribe en el código ni se sube al repositorio** (`.streamlit/secrets.toml` está en `.gitignore`).
+   …o pegarla en la barra lateral de la app, donde queda solo en la sesión del navegador. **La credencial nunca se escribe en el código ni se sube al repositorio** (`.streamlit/secrets.toml` está en `.gitignore`).
+
+   Cuando la key viene del entorno o de los secrets, la app entra en **modo asesor**: oculta el campo de credencial y el selector de modelo, porque esa pantalla es la del vendedor atendiendo, no la de quien configura. El panel técnico se abre agregando `?config=1` a la URL. Con `GEMINI_MODEL` se puede fijar el modelo; si la key no lo habilita, el motor elige solo el mejor disponible en vez de fallar.
 
    Para verificar la conexión desde la terminal antes de una demo:
 
