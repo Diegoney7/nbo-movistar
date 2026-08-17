@@ -87,7 +87,7 @@ Los **47.572 rebates** registrados en el histórico tienen una tasa de cierre de
 
 ## 🚀 Cómo ejecutar
 
-1. Instalar dependencias: `pip install -r requirements.txt`. **Requiere `scikit-learn >= 1.6`** (el modelo de aceptación usa `sklearn.frozen.FrozenEstimator` para la calibración isotónica).
+1. Instalar dependencias: `pip install -r requirements.txt`. Las versiones están **fijadas a las que produjeron los modelos** de `models_artifacts/`, porque un cambio de versión de scikit-learn o LightGBM puede romper la deserialización de los `.pkl`. (En particular se requiere `scikit-learn >= 1.6`: el modelo de aceptación usa `sklearn.frozen.FrozenEstimator` para la calibración isotónica). Las librerías de gráficos del EDA están aparte, en `requirements-notebooks.txt`.
 2. Entrenar los modelos (opcional, ya vienen entrenados en `models_artifacts/`):
 
    ```bash
